@@ -22,7 +22,7 @@ type client struct {
 	BaseUrl   string
 }
 
-type OneNameResponse struct {
+type OneNameErrorResponse struct {
 	Error *OneNameError `json:"error,omitempty"`
 }
 
@@ -31,13 +31,13 @@ type OneNameError struct {
 	Type    string `json:"type"`
 }
 
-// GET
-func (c *client) GetRequest(url string) (OneNameResponse, error) {
-	responseObject := OneNameResponse{}
+// GetRequest GETs the json response using client c
+func (c *client) GetRequest(url string) ([]byte, error) {
+	respJSON := []byte{}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return responseObject, err
+		return respJSON, err
 	}
 
 	req.SetBasicAuth(c.ApiID, c.ApiSecret)
@@ -46,68 +46,79 @@ func (c *client) GetRequest(url string) (OneNameResponse, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return responseObject, err
+		return respJSON, err
 	}
 
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	respJSON, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return responseObject, err
+		return respJSON, err
 	}
 
-	x := &responseObject
-	err = json.Unmarshal(body, x)
-	if err != nil {
-		return responseObject, err
-	}
-
-	if x.Error != nil {
-		err = errors.New("Error: " + x.Error.Type + " - " + x.Error.Message)
-	}
-
-	return responseObject, err
+	return respJSON, err
 }
 
-func (c *client) GetUsers(usernames []string) (OneNameResponse, error) {
+// GetUserObject parses the JSON responses matching the Users type
+func (c *client) GetUserObjects(url string) (Users, error) {
+	var jsonObj Users
+	jsonBytes, err := c.GetRequest(url)
+	if err != nil {
+		return jsonObj, err
+	}
+	err = json.Unmarshal(jsonBytes, &jsonObj)
+	if err != nil {
+		return jsonObj, err
+	}
+	if _, errorPresent := jsonObj["error"]; errorPresent {
+		var errResp OneNameErrorResponse
+		err = json.Unmarshal(jsonBytes, &errResp)
+		if err == nil && errResp.Error != nil {
+			err = errors.New("Error: " + errResp.Error.Type + " - " + errResp.Error.Message)
+		}
+	}
+	return jsonObj, err
+}
+
+func (c *client) GetUsers(usernames []string) (Users, error) {
 	url := c.BaseUrl + "/users/" + strings.Join(usernames, ",")
-	return c.GetRequest(url)
+	return c.GetUserObjects(url)
 }
 
-func (c *client) SearchUsers(query string) (OneNameResponse, error) {
+func (c *client) SearchUsers(query string) (Users, error) {
 	url := c.BaseUrl + "/search?query=" + query
-	return c.GetRequest(url)
+	return c.GetUserObjects(url)
 }
 
-func (c *client) GetAllUsers() (OneNameResponse, error) {
+func (c *client) GetAllUsers() (Users, error) {
 	url := c.BaseUrl + "/users"
-	return c.GetRequest(url)
+	return c.GetUserObjects(url)
 }
 
-func (c *client) GetUserStats() (OneNameResponse, error) {
+func (c *client) GetUserStats() ([]byte, error) {
 	url := c.BaseUrl + "/stats/users"
 	return c.GetRequest(url)
 }
 
-func (c *client) GetUnspents(address string) (OneNameResponse, error) {
+func (c *client) GetUnspents(address string) ([]byte, error) {
 	_, _, err := base58.CheckDecode(address)
 	if err != nil {
-		return OneNameResponse{}, errors.New("Address must be a valid cryptocurrency address. Instead it is " + address + err.Error())
+		return []byte{}, errors.New("Address must be a valid cryptocurrency address. Instead it is " + address + err.Error())
 	}
 	url := c.BaseUrl + "/addresses/" + address + "/unspents"
 	return c.GetRequest(url)
 }
 
-func (c *client) GetNames(address string) (OneNameResponse, error) {
+func (c *client) GetNames(address string) ([]byte, error) {
 	_, _, err := base58.CheckDecode(address)
 	if err != nil {
-		return OneNameResponse{}, errors.New("Address must be a valid cryptocurrency address. Instead it is " + address + err.Error())
+		return []byte{}, errors.New("Address must be a valid cryptocurrency address. Instead it is " + address + err.Error())
 	}
 	url := c.BaseUrl + "/addresses/" + address + "/names"
 	return c.GetRequest(url)
 }
 
-func (c *client) GetDKIMInfo(domain string) (OneNameResponse, error) {
+func (c *client) GetDKIMInfo(domain string) ([]byte, error) {
 	url := c.BaseUrl + "/domains/" + domain + "/dkim"
 	return c.GetRequest(url)
 }
@@ -119,8 +130,8 @@ type OneNamePost struct {
 	SignedHex        string `json:"signed_hex,omitempty"`
 }
 
-func (c *client) PostRequest(url string, payload OneNamePost) (OneNameResponse, error) {
-	responseObject := OneNameResponse{}
+func (c *client) PostRequest(url string, payload OneNamePost) (OneNameErrorResponse, error) {
+	responseObject := OneNameErrorResponse{}
 
 	jsonStr, err := json.Marshal(payload)
 	if err != nil {
@@ -161,17 +172,17 @@ func (c *client) PostRequest(url string, payload OneNamePost) (OneNameResponse, 
 	return responseObject, err
 }
 
-func (c *client) RegisterUser(username, address string) (OneNameResponse, error) {
+func (c *client) RegisterUser(username, address string) (OneNameErrorResponse, error) {
 	_, _, err := base58.CheckDecode(address)
 	if err != nil {
-		return OneNameResponse{}, err
+		return OneNameErrorResponse{}, err
 	}
 	url := c.BaseUrl + "/users"
 	payload := OneNamePost{username, address, ""}
 	return c.PostRequest(url, payload)
 }
 
-func (c *client) BroadcastTransactions(signedHex string) (OneNameResponse, error) {
+func (c *client) BroadcastTransactions(signedHex string) (OneNameErrorResponse, error) {
 	url := c.BaseUrl + "/transactions"
 	payload := OneNamePost{"", "", signedHex}
 	return c.PostRequest(url, payload)
@@ -196,11 +207,19 @@ func main() {
 	}
 
 	c := client{lines[0], lines[1], "https://api.onename.com/v1"}
-	resp, err := c.GetRequest("https://api.onename.com/v1/users")
+	/*	resp, err := c.GetRequest("https://api.onename.com/v1/users")
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Println(resp)*/
+
+	users, err := c.GetAllUsers()
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(resp)
+	fmt.Println(users)
+	return
 
 }
