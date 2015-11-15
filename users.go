@@ -1,10 +1,24 @@
 package main
 
-type Users map[string]User
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+)
+
+type LookupResponse map[string]User
 
 type User struct {
 	Profile       Profile
 	Verifications []Verification
+}
+
+func (u User) String() string {
+	ret := fmt.Sprint(u.Profile.String())
+	ret += "\n\tVerifications: "
+	ret += fmt.Sprint(u.Verifications)
+	return ret
 }
 
 type Verification struct {
@@ -14,31 +28,38 @@ type Verification struct {
 	Valid      bool   `json:"valid"`
 }
 
-type Url struct {
-	Url string `json:"url"`
+func (v Verification) String() string {
+	ret := "\n"
+	ret += "\t\tidentifier: " + v.Identifier + "\n"
+	ret += "\t\tproof_url: " + v.ProofURL + "\n"
+	ret += "\t\tservice: " + v.Service + "\n"
+	ret += "\t\tvalid: " + fmt.Sprint(v.Valid) + "\n"
+	return ret
 }
 
-type SocialID struct {
-	Proof    Url    `json:"proof"`
-	Username string `json:"username"`
+// GetUsers Looks up users in the input slice
+func (c *client) GetUsers(usernames []string) (LookupResponse, error) {
+	url := c.BaseUrl + "/users/" + strings.Join(usernames, ",")
+	return c.GetUserObjects(url)
 }
 
-type Formatted struct {
-	Formatted string `json:"formatted"`
-}
-
-type Profile struct {
-	Avatar  Url `json:"avatar"`
-	Bio     string
-	Bitcoin struct {
-		Address string `json:"address"`
-	} `json:"bitcoin"`
-	Cover    Url       `json:"cover"`
-	Facebook SocialID  `json:"facebook"`
-	Graph    Url       `json:"graph"`
-	Location Formatted `json:"location"`
-	Name     Formatted `json:"name"`
-	Twitter  SocialID  `json:"twitter"`
-	Version  string    `json:"v"`
-	Website  string    `json:"website"`
+// GetUserObject parses the JSON responses matching the LookupResponse type
+func (c *client) GetUserObjects(url string) (LookupResponse, error) {
+	var jsonObj LookupResponse
+	jsonBytes, err := c.GetRequest(url)
+	if err != nil {
+		return jsonObj, err
+	}
+	err = json.Unmarshal(jsonBytes, &jsonObj)
+	if err != nil {
+		return jsonObj, err
+	}
+	if _, errorPresent := jsonObj["error"]; errorPresent {
+		var errResp OneNameErrorResponse
+		err = json.Unmarshal(jsonBytes, &errResp)
+		if err == nil && errResp.Error != nil {
+			err = errors.New("Error: " + errResp.Error.Type + " - " + errResp.Error.Message)
+		}
+	}
+	return jsonObj, err
 }
