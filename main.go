@@ -2,15 +2,11 @@ package main
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io/ioutil"
-	"net/http"
+	"io"
 	"os"
 
-	"github.com/btcsuite/btcutil/base58"
+	"github.com/codegangsta/cli"
 )
 
 var BASE_URL = "https://api.onename.com/v1"
@@ -21,77 +17,10 @@ type client struct {
 	BaseUrl   string
 }
 
-// POST
-type OneNamePost struct {
-	Passname         string `json:"passname,omitempty"`
-	RecipientAddress string `json:"recipient_address,omitempty"`
-	SignedHex        string `json:"signed_hex,omitempty"`
-}
-
-func (c *client) PostRequest(url string, payload OneNamePost) (OneNameErrorResponse, error) {
-	responseObject := OneNameErrorResponse{}
-
-	jsonStr, err := json.Marshal(payload)
-	if err != nil {
-		return responseObject, err
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
-	if err != nil {
-		return responseObject, err
-	}
-
-	req.SetBasicAuth(c.ApiID, c.ApiSecret)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return responseObject, err
-	}
-
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return responseObject, err
-	}
-
-	x := &responseObject
-	err = json.Unmarshal(body, x)
-	if err != nil {
-		return responseObject, err
-	}
-
-	if x.Error != nil {
-		err = errors.New("Error: " + x.Error.Type + " - " + x.Error.Message)
-	}
-
-	return responseObject, err
-}
-
-func (c *client) RegisterUser(username, address string) (OneNameErrorResponse, error) {
-	_, _, err := base58.CheckDecode(address)
-	if err != nil {
-		return OneNameErrorResponse{}, err
-	}
-	url := c.BaseUrl + "/users"
-	payload := OneNamePost{username, address, ""}
-	return c.PostRequest(url, payload)
-}
-
-func (c *client) BroadcastTransactions(signedHex string) (OneNameErrorResponse, error) {
-	url := c.BaseUrl + "/transactions"
-	payload := OneNamePost{"", "", signedHex}
-	return c.PostRequest(url, payload)
-}
-
-func main() {
-
+func getClient(useLive bool) (client, error) {
 	file, err := os.Open("cred.txt")
 	if err != nil {
-		fmt.Println(err)
-		return
+		return client{}, err
 	}
 
 	lines := []string{}
@@ -100,50 +29,148 @@ func main() {
 		lines = append(lines, scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		fmt.Println(err)
+		return client{}, err
+	}
+
+	if useLive {
+		live := "https://api.onename.com/v1"
+		return client{lines[0], lines[1], live}, nil
+	}
+	test := "http://localhost:12345"
+	return client{lines[0], lines[1], test}, nil
+}
+
+func oneNameClientApp(out io.Writer) *cli.App {
+	app := cli.NewApp()
+	app.Name = "onename"
+	app.Usage = "CLI for the OneName API"
+	app.Writer = out
+	app.Flags = []cli.Flag{
+		cli.BoolFlag{
+			Name:  "live, l",
+			Usage: "point to the live API",
+		},
+	}
+	app.Commands = []cli.Command{
+		{
+			Name:    "lookup",
+			Aliases: []string{"ls"},
+			Usage:   "lookup user records - onename lookup fredwilson albertwenger",
+			Action: func(c *cli.Context) {
+				httpClient, err := getClient(c.GlobalBool("live"))
+				if err != nil {
+					fmt.Fprintln(out, err)
+					return
+				}
+				users, err := httpClient.GetUsers(c.Args())
+				if err != nil {
+					fmt.Fprintln(out, err)
+					return
+				}
+				fmt.Fprintln(out, users)
+			},
+		},
+		{
+			Name:    "stats",
+			Aliases: []string{"st"},
+			Usage:   "get onename user stats - onename stats",
+			Action: func(c *cli.Context) {
+				httpClient, err := getClient(c.GlobalBool("live"))
+				if err != nil {
+					fmt.Fprintln(out, err)
+					return
+				}
+				stats, err := httpClient.GetUserStats()
+				if err != nil {
+					fmt.Fprintln(out, err)
+				} else {
+					fmt.Fprintln(out, stats)
+				}
+			},
+		},
+		{
+			Name:    "search",
+			Aliases: []string{"s", "find"},
+			Usage:   "search for a user - onename search wenger",
+			Action: func(c *cli.Context) {
+				httpClient, err := getClient(c.GlobalBool("live"))
+				if err != nil {
+					fmt.Fprintln(out, err)
+					return
+				}
+				searchResults, err := httpClient.SearchUsers(c.Args().First())
+				if err != nil {
+					fmt.Fprintln(out, err)
+				} else {
+					fmt.Fprintln(out, searchResults)
+				}
+			},
+		},
+		{
+			Name:    "unspents",
+			Aliases: []string{"un"},
+			Usage:   "unspents of a bitcoin address - onename unspents 1QHDGGLEKK7FZWsBEL78acV9edGCTarqXt",
+			Action: func(c *cli.Context) {
+				httpClient, err := getClient(c.GlobalBool("live"))
+				if err != nil {
+					fmt.Fprintln(out, err)
+					return
+				}
+				unspentsResults, err := httpClient.GetUnspents(c.Args().First())
+				if err != nil {
+					fmt.Fprintln(out, err)
+				} else {
+					fmt.Fprintln(out, unspentsResults)
+				}
+			},
+		},
+		{
+			Name:    "names",
+			Aliases: []string{"n"},
+			Usage:   "names associated with a bitcoin address - onename names 1QHDGGLEKK7FZWsBEL78acV9edGCTarqXt",
+			Action: func(c *cli.Context) {
+				httpClient, err := getClient(c.GlobalBool("live"))
+				if err != nil {
+					fmt.Fprintln(out, err)
+					return
+				}
+				namesResults, err := httpClient.GetNames(c.Args().First())
+				if err != nil {
+					fmt.Fprintln(out, err)
+				} else {
+					fmt.Fprintln(out, namesResults)
+				}
+			},
+		},
+		{
+			Name:    "dkim",
+			Aliases: []string{"d"},
+			Usage:   "dkim info on a domain - onename dkim onename.com",
+			Action: func(c *cli.Context) {
+				httpClient, err := getClient(c.GlobalBool("live"))
+				if err != nil {
+					fmt.Fprintln(out, err)
+					return
+				}
+				dkimResult, err := httpClient.GetDKIMInfo(c.Args().First())
+				if err != nil {
+					fmt.Fprintln(out, err)
+				} else {
+					fmt.Fprintln(out, dkimResult)
+				}
+			},
+		},
+	}
+	app.Action = func(c *cli.Context) {
+
 		return
 	}
 
-	c := client{lines[0], lines[1], "https://api.onename.com/v1"}
+	return app
 
-	users, err := c.GetUsers([]string{"fredwilson"})
-	if err != nil {
-		fmt.Println(err)
-	} else {
-		fmt.Println(users)
-	}
+}
 
-	stats, err := c.GetUserStats()
-	if err != nil {
-		fmt.Println(err)
-	} else {
-		fmt.Println(stats)
-	}
-
-	searchResults, err := c.SearchUsers("wenger")
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(searchResults)
-
-	unspentsResults, err := c.GetUnspents("1QHDGGLEKK7FZWsBEL78acV9edGCTarqXt")
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(unspentsResults)
-
-	namesResults, err := c.GetNames("1QHDGGLEKK7FZWsBEL78acV9edGCTarqXt")
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(namesResults)
-
-	dkimResult, err := c.GetDKIMInfo("onename.com")
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(dkimResult)
-
-	return
-
+func main() {
+	app := oneNameClientApp(os.Stdout)
+	app.Run(os.Args)
 }
