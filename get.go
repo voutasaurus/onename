@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io/ioutil"
 	"net/http"
 )
@@ -11,7 +12,7 @@ func (c *client) GetRequest(url string) ([]byte, error) {
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return respJSON, err
+		return respJSON, errors.New("Request not sent. Could not construct request.\n\t Check the URL \"" + url + "\" - got error: " + err.Error())
 	}
 
 	req.SetBasicAuth(c.ApiID, c.ApiSecret)
@@ -20,14 +21,14 @@ func (c *client) GetRequest(url string) ([]byte, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return respJSON, err
+		return respJSON, errors.New("Request failed.\n\t Got error: " + err.Error())
 	}
 
 	defer resp.Body.Close()
 
 	respJSON, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return respJSON, err
+		return respJSON, errors.New("Request completed but read of response body failed.\n\t Got error: " + err.Error())
 	}
 
 	return respJSON, err

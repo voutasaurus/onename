@@ -52,7 +52,7 @@ func (c *client) GetUserObjects(url string) (LookupResponse, error) {
 	}
 	err = json.Unmarshal(jsonBytes, &jsonObj)
 	if err != nil {
-		return jsonObj, err
+		return jsonObj, JSONRead(err, jsonBytes)
 	}
 	if _, errorPresent := jsonObj["error"]; errorPresent {
 		var errResp OneNameErrorResponse

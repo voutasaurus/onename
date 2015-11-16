@@ -62,12 +62,21 @@ func oneNameClientApp(out io.Writer) *cli.App {
 					fmt.Fprintln(out, err)
 					return
 				}
-				users, err := httpClient.GetUsers(c.Args())
-				if err != nil {
-					fmt.Fprintln(out, err)
-					return
+				if len(c.Args()) > 0 {
+					users, err := httpClient.GetUsers(c.Args())
+					if err != nil {
+						fmt.Fprintln(out, "Couldn't get users:", fmt.Sprint(c.Args()), "Got error:\n\t", err.Error())
+						return
+					}
+					fmt.Fprintln(out, users)
+				} else {
+					allUsers, err := httpClient.GetAllUsers()
+					if err != nil {
+						fmt.Fprintln(out, "No user specified so attempted to get all users. Got error:\n\t", err.Error())
+						return
+					}
+					fmt.Fprintln(out, allUsers)
 				}
-				fmt.Fprintln(out, users)
 			},
 		},
 		{
@@ -157,6 +166,50 @@ func oneNameClientApp(out io.Writer) *cli.App {
 					fmt.Fprintln(out, err)
 				} else {
 					fmt.Fprintln(out, dkimResult)
+				}
+			},
+		},
+		{
+			Name:    "register",
+			Aliases: []string{"r"},
+			Usage:   "register a name/address association - onename register name address",
+			Action: func(c *cli.Context) {
+				if len(c.Args()) != 2 {
+					fmt.Fprintln(out, "You must specify a name and an address to register.")
+					return
+				}
+				httpClient, err := getClient(c.GlobalBool("live"))
+				if err != nil {
+					fmt.Fprintln(out, "Error constructing http client:", err.Error())
+					return
+				}
+				ack, err := httpClient.RegisterUser(c.Args()[0], c.Args()[1])
+				if err != nil {
+					fmt.Fprintln(out, "Error registering user:\n\t", err)
+				} else {
+					fmt.Fprintln(out, ack)
+				}
+			},
+		},
+		{
+			Name:    "broadcast",
+			Aliases: []string{"transaction"},
+			Usage:   "Broadcast a transaction - onename broadcast trasactionhex",
+			Action: func(c *cli.Context) {
+				if len(c.Args()) != 1 {
+					fmt.Fprintln(out, "You must specify a transaction to broadcast.")
+					return
+				}
+				httpClient, err := getClient(c.GlobalBool("live"))
+				if err != nil {
+					fmt.Fprintln(out, "Error constructing http client:", err.Error())
+					return
+				}
+				ack, err := httpClient.BroadcastTransactions(c.Args().First())
+				if err != nil {
+					fmt.Fprintln(out, "Error broadcasting transaction:\n\t", err)
+				} else {
+					fmt.Fprintln(out, ack)
 				}
 			},
 		},

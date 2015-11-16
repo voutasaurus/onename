@@ -85,7 +85,7 @@ func (c *client) GetProfileObjects(url string) (SearchResponse, error) {
 	}
 	err = json.Unmarshal(jsonBytes, &jsonObj)
 	if err != nil {
-		return jsonObj, err
+		return jsonObj, JSONRead(err, jsonBytes)
 	}
 	if jsonObj.Error != nil {
 		err = errors.New("Error: " + jsonObj.Error.Type + " - " + jsonObj.Error.Message)
